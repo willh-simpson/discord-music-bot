@@ -9,6 +9,7 @@ defmodule ElixirServiceWeb.Router do
     pipe_through :api
 
     get "/health", HealthController, :index
+    post "/events", EventController, :create
   end
 
   # Enable LiveDashboard in development

@@ -1,3 +1,6 @@
-discord.py==2.3.2
+discord.py[voice]>=2.4.0
 python-dotenv==1.0.1
-requests==2.31.0
+yt-dlp
+aiohttp==3.9.3
+PyNaCl==1.5.0
+certifi==2024.2.2

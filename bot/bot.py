@@ -1,67 +1,87 @@
 import os
 import asyncio
+import sys
 
 import discord
-import requests
+from discord.ext import commands
 from dotenv import load_dotenv
+import events
 
 load_dotenv()
 
-ELIXIR_URL = os.getenv("ELIXIR_URL", "http://elixir:4000")
-DJANGO_URL = os.getenv("DJANGO_URL", "http://django:8000")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+if not DISCORD_TOKEN:
+    raise RuntimeError("Discord token is not set")
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.voice_states = True
 
-client = discord.Client(intents=intents)
-
-
-def check_service(url: str) -> str:
-    try:
-        r = requests.get(url, timeout=5)
-        data = r.json()
-
-        return data.get("status", "unknown")
-    except requests.exceptions.ConnectionError:
-        return "unreachable"
-    except Exception as e:
-        return f"error: {type(e).__name__}"
-    
-
-@client.event
-async def on_ready():
-    print(f"[bot] Online as {client.user} (id={client.user.id})")
-    print(f"[bot] Elixir URL: {ELIXIR_URL}")
-    print(f"[bot] Django URL: {DJANGO_URL}")
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-@client.event
-async def on_message(message):
-    if message.author == client.user:
+def load_opus() -> None:
+    """
+    Explicitly attempt to load opus from known locations.
+    discord.py does this automatically but fails silently, so the
+    result needs to be logged.
+    """
+    if discord.opus.is_loaded():
+        print("[opus] Already loaded.")
+
         return
     
-    if message.content.strip() == "!ping":
-        loop = asyncio.get_event_loop()
+    candidates = [
+        "libopus.so.0",
+        "libopus.so",
+        "/usr/lib/x86_64-linux-gnu/libopus.so.0",
+        "/usr/lib/aarch64-linux-gnu/libopus.so.0",
+    ]
 
-        elixir_status = await loop.run_in_executor(
-            None, check_service, f"{ELIXIR_URL}/api/health"
-        )
+    for path in candidates:
+        try:
+            discord.opus.load_opus(path)
+            print(f"[opus] Loaded from: {path}")
 
-        django_status = await loop.run_in_executor(
-            None, check_service, f"{DJANGO_URL}/api/health"
-        )
-
-        lines = [
-            "**System health check**",
-            f"Elixir realtime -> `{elixir_status}`",
-            f"Django ML -> `{django_status}`",
-        ]
-
-        await message.channel.send("\n".join(lines))
+            return
+        except Exception as e:
+            print(f"[opus] Failed to load {path}: {e}")
+    
+    print("[opus] WARNING: Could not load opus. Voice will not work")
 
 
-token = os.getenv("DISCORD_TOKEN")
-if not token:
-    raise RuntimeError("DISCORD_TOKEN is not set in environment")
+@bot.event
+async def on_ready():
+    print(f"[bot] Python {sys.version}")
+    print(f"[bot] discord.py {discord.__version__}")
+    print(f"[bot] Online as {bot.user} (id={bot.user.id})")
+    print(f"[bot] Connected to {len(bot.guilds)} guild(s)")
+    print(f"[bot] Opus loaded: {discord.opus.is_loaded()}")
+    print(f"[bot] Commands: {[c.name for c in bot.commands]}")
 
-client.run(token)
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: Exception):
+    # errors handled by cogs can be suppressed
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if hasattr(ctx.command, "on_error"):
+        return
+    
+    print(f"[bot] Unhandled error in '{ctx.command}': {type(error).__name__}: {error}")
+
+
+async def main():
+    load_opus()
+
+    async with bot:
+        await bot.load_extension("cogs.music")
+        print("[bot] Loaded cog: music")
+
+        try:
+            await bot.start(DISCORD_TOKEN)
+        finally:
+            await events.close()
+
+    
+asyncio.run(main())
