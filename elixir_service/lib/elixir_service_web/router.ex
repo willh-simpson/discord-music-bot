@@ -25,6 +25,8 @@ defmodule ElixirServiceWeb.Router do
       pipe_through [:fetch_session, :protect_from_forgery]
 
       live_dashboard "/dashboard", metrics: ElixirServiceWeb.Telemetry
+
+      get "/debug/guild/:guild_id", DebugController, :guild_state
     end
   end
 end
