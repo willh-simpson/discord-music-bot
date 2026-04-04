@@ -1,6 +1,4 @@
 defmodule ElixirService.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
   @moduledoc false
 
   use Application
@@ -11,14 +9,20 @@ defmodule ElixirService.Application do
       ElixirServiceWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:elixir_service, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: ElixirService.PubSub},
+      {Registry, keys: :unique, name: ElixirService.Registry},
+
+      # spawns GuildSessions
+      ElixirService.SessionSupervisor,
+      # collects and batches events to django
+      ElixirService.EventAggregator,
+
       # Start a worker by calling: ElixirService.Worker.start_link(arg)
       # {ElixirService.Worker, arg},
       # Start to serve requests, typically the last entry
       ElixirServiceWeb.Endpoint
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
+    # children are not tightly coupled, so using :one_for_one to restart just the one child if it crashes
     opts = [strategy: :one_for_one, name: ElixirService.Supervisor]
     Supervisor.start_link(children, opts)
   end
