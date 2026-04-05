@@ -5,9 +5,15 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .serializiers import ListenEventInputSerializer, RecommendationRequestSerializer, RecommendedSongSerializer
+from .models import RecommendationLog
+from .serializiers import (
+    ListenEventInputSerializer, 
+    RecommendationRequestSerializer, 
+    RecommendedSongSerializer,
+    AcceptanceSerializer
+)
 from .tasks import process_listening_events
-from .engine import RecommendationEngine
+from .engine import Phase2Engine
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +80,7 @@ def recommend(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     data = serializer.validated_data
-    engine = RecommendationEngine()
+    engine = Phase2Engine()
 
     results = engine.recommend(
         guild_id=data["guild_id"],
@@ -83,11 +89,61 @@ def recommend(request):
         context=data.get("context", {}),
     )
 
-    output = RecommendedSongSerializer(results, many=True)
+    log = None
+    if data.get("user_id") and results:
+        log = RecommendationLog.objects.create(
+            guild_id=data["guild_id"],
+            user_id=data["user_id"],
+            recommendations=results,
+            phase=results[0].get("phase", "unknown") if results else "unknown",
+        )
 
-    return Response({
+    output = RecommendedSongSerializer(results, many=True)
+    
+    response_data = {
         "guild_id": data["guild_id"],
         "count": len(results),
         "recommendations": output.data,
-        "phase": "phase1_rule_based",
+        "phase": results[0].get("phase", "phase1") if results else "phase1",
+    }
+    if log:
+        response_data["log_id"] = log.id
+
+    return Response(response_data)
+
+
+@api_view(["POST"])
+def accept_recommendation(request):
+    """
+    When user plays a recommend song.
+    """
+
+    serializer = AcceptanceSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    data = serializer.validated_data
+
+    try:
+        log = RecommendationLog.objects.get(id=data["log_id"])
+    except RecommendationLog.DoesNotExist:
+        return Response({"error": "log not found"}, status=status.HTTP_404_NOT_FOUND)
+    
+    played_url = data["played_url"]
+
+    if played_url not in log.accepted_urls:
+        log.accepted_urls.append(played_url)
+
+    total = len(log.recommendations)
+    accepted = len(log.accepted_urls)
+    log.acceptance_rate = round(accepted / total, 3) if total > 0 else 0.0
+    log.save()
+
+    logger.info(f"[acceptance] log_id={log.id}, accepted={accepted}/{total}, rate={log.acceptance_rate}")
+
+    return Response({
+        "status": "recorded",
+        "accepted": accepted,
+        "total": total,
+        "acceptance_rate": log.acceptance_rate,
     })
