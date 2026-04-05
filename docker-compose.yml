@@ -27,6 +27,30 @@ services:
       timeout: 3s
       retries: 10
 
+  celery:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Overrides the default CMD to run the Celery worker instead
+    command: celery -A config worker --loglevel=info --concurrency=2
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DEBUG: "True"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: music
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ml_service:/app
+
   elixir:
     build:
       context: ./elixir_service
@@ -39,6 +63,7 @@ services:
       PHX_HOST: localhost
       PORT: "4000"
       SECRET_KEY_BASE: ${ELIXIR_SECRET_KEY_BASE}
+      DJANGO_URL: "http://django:8000"
     depends_on:
       redis:
         condition: service_healthy
@@ -62,6 +87,7 @@ services:
       POSTGRES_DB: music
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: "redis://redis:6379/0"
     depends_on:
       postgres:
         condition: service_healthy

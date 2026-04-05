@@ -3,5 +3,6 @@ from recommendations import views
 
 urlpatterns = [
     path("api/health/", views.health),
-    path("/api/listening-events/", views.listening_events)
+    path("api/listening-events/", views.listening_events),
+    path("api/recommend/", views.recommend),
 ]
