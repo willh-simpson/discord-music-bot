@@ -1,10 +1,12 @@
 import logging
+import numpy as np
 
 from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
+from sklearn.metrics.pairwise import cosine_similarity
 
-from .models import DiscordUser, Song, ListenEvent, GuildSongStats
+from .models import DiscordUser, Song, ListenEvent, GuildSongStats, ModelCache
 from .serializiers import ListenEventInputSerializer
 
 logger = logging.getLogger(__name__)
@@ -125,3 +127,109 @@ def _persist_event(event: dict) -> None:
             GuildSongStats.objects.filter(pk=guild_stats.pk).update(
                 unique_listeners=unique_count
             )
+
+
+@shared_task(name="recommendations.build_interaction_matrix")
+def build_interaction_matrix() -> dict:
+    """
+    Build user-item interaction matrices and compute cosine similarity.
+    Results are stored as JSON in ModelCache so recommendation queries can load
+    without recomputing from scratch.
+    """
+
+    logger.info("[matrix] Starting interaction matrix build")
+
+    events = list(
+        ListenEvent.objects
+        .select_related("user", "song")
+        .values(
+            "user__discord_id",
+            "song__webpage_url",
+            "song__title",
+            "song__duration",
+            "completion_ratio",
+            "reason",
+        )
+    )
+    if not events:
+        logger.info("[matrix] No events. Skipping build")
+
+        return {
+            "status": "skipped",
+            "reason": "no_data",
+        }
+    
+    user_ids = sorted(set(e["user__discord_id"] for e in events))
+    song_urls = sorted(set(e["song__webpage_url"] for e in events))
+
+    user_index = {uid: i for i, uid in enumerate(user_ids)}
+    song_index = {url: i for i, url in enumerate(song_urls)}
+
+    n_users = len(user_ids)
+    n_songs = len(song_urls)
+
+    logger.info(f"[matrix] Building {n_users} x {n_songs} matrix")
+
+    matrix = np.zeros((n_users, n_songs), dtype=np.float32)
+
+    for event in events:
+        u = user_index[event["user__discord_id"]]
+        s = song_index[event["song__webpage_url"]]
+        matrix[u, s] += event["completion_ratio"]
+
+    # each row needs to be normalized to unit length.
+    # this ensures cosine similarity isn't dominated by users who simply listen more.
+    row_norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    row_norms[row_norms == 0] = 1 # avoids divide by zero for users with no data
+    matrix = matrix / row_norms
+
+    user_sim = cosine_similarity(matrix)
+    item_sim = cosine_similarity(matrix.T)
+
+    song_meta = {}
+    seen_urls = set()
+    for event in events:
+        url = event["song__webpage_url"]
+        if url not in seen_urls:
+            song_meta[url] = {
+                "title": event["song__title"],
+                "duration": event["song__duration"],
+                "url": url,
+            }
+            seen_urls.add(url)
+
+    _save_cache("user_similarity", user_sim.tolist(), {
+        "user_ids": user_ids,
+        "user_index": user_index,
+    }, n_users, n_songs)
+
+    _save_cache("item_similarity", item_sim.tolist(), {
+        "song_urls": song_urls,
+        "song_index": song_index,
+        "song_meta": song_meta,
+    }, n_users, n_songs)
+
+    _save_cache("interaction_matrix", matrix.tolist(), {
+        "user_ids": user_ids,
+        "user_index": song_index,
+        "song_meta": song_meta,
+    }, n_users, n_songs)
+
+    logger.info(f"[matrix] Build complete: {n_users} users, {n_songs} songs, matrix shape {matrix.shape}")
+
+    return {
+        "status": "ok",
+        "users": n_users,
+        "songs": n_songs,
+    }
+
+
+def _save_cache(key: str, data, metadata: dict, n_users: int, n_songs: int):
+    cache, _ = ModelCache.objects.get_or_create(cache_key=key)
+    cache.set_data(data)
+    cache.metadata = metadata
+    cache.user_count = n_users
+    cache.song_count = n_songs
+    cache.save()
+
+    logger.info(f"[matrix] Saved cache key: {key}")

@@ -55,3 +55,8 @@ class RecommendedSongSerializer(serializers.Serializer):
     duration    = serializers.IntegerField()
     score       = serializers.FloatField()
     reason      = serializers.CharField()
+
+
+class AcceptanceSerializer(serializers.Serializer):
+    log_id = serializers.IntegerField()
+    played_url = serializers.CharField(max_length=512)

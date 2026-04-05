@@ -1,3 +1,5 @@
+import json
+
 from django.db import models
 
 class DiscordUser(models.Model):
@@ -121,4 +123,54 @@ class GuildSongStats(models.Model):
         indexes = [
             models.Index(fields=["guild_id", "play_count"]),
             models.Index(fields=["guild_id", "last_played"]),
+        ]
+
+
+class ModelCache(models.Model):
+    """
+    Stores serialized numpy matrices and index mappings.
+    Keyed by cache_key to store multiple model types (user_similarity, item_similarity, etc).
+    """
+
+    cache_key = models.CharField(max_length=64, unique=True, db_index=True)
+    data = models.TextField() # JSON-serialised numpy array
+    metadata = models.JSONField(default=dict)
+    built_at = models.DateTimeField(auto_now=True)
+    user_count = models.IntegerField(default=0)
+    song_count = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "model_cache"
+
+    def set_data(self, obj):
+        self.data = json.dumps(obj)
+
+    def get_data(self):
+        return json.loads(self.data)
+    
+
+class RecommendationLog(models.Model):
+    """
+    One row per recommendation session: what was recommended, 
+    which songs were actually played after (acceptance).
+    """
+
+    guild_id = models.CharField(max_length=64, db_index=True)
+    user_id = models.CharField(max_length=64, db_index=True)
+
+    # JSON list of {title, webpage_url, score, reason}
+    recommendations = models.JSONField(default=list)
+
+    accepted_urls = models.JSONField(default=list)
+    acceptance_rate = models.FloatField(default=0.0)
+
+    phase = models.CharField(max_length=32, default="phase1")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "recommendation_logs"
+        indexes = [
+            models.Index(fields=["guild_id", "created_at"]),
+            models.Index(fields=["user_id", "created_at"]),
         ]
