@@ -61,7 +61,7 @@ defmodule ElixirService.EventAggregator do
     headers = [{"Content-Type", "application/json"}]
 
     case HTTPoison.post(url, payload, headers, recv_timeout: 5_000) do
-      {:ok, %HTTPoison.Response{status_code: status}} when status in 200.299 ->
+      {:ok, %HTTPoison.Response{status_code: status}} when status in 200..299 ->
         :ok
 
       {:ok, %HTTPoison.Response{status_code: status, body: body}} ->

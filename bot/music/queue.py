@@ -2,6 +2,8 @@ import asyncio
 from typing import Optional
 
 import discord
+
+import events
 from music.player import Song, YTDLSource, FFMPEG_OPTIONS
 
 
@@ -69,6 +71,12 @@ class MusicPlayer:
             )
 
             await self.play_song(next_song, source)
+
+            await events.emit("song_started", {
+                **next_song.to_event_data(),
+                "channel_id": str(self.text_channel.id),
+                "voice_channel_id": str(self.voice_client.channel.id),
+            })
         except Exception as e:
             await self.text_channel.send(f"Failed to play **{next_song.title}: {e}")
             await self._advance() # skip broken song and try next instead of retrying

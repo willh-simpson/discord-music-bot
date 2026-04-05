@@ -23,7 +23,7 @@ defmodule ElixirService.GuildSession do
     guild_id = Keyword.fetch!(opts, :guild_id)
 
     # registering process in Registry to enable lookup without manually storing PID
-    GenServer.start_link(_MODULE__, opts, name: via_tuple(guild_id))
+    GenServer.start_link(__MODULE__, opts, name: via_tuple(guild_id))
   end
 
   def handle_event(guild_id, event_type, data) do
@@ -95,9 +95,10 @@ defmodule ElixirService.GuildSession do
       started_at:     DateTime.utc_now()
     }
 
-    new_state = %{state |
+    new_state = %{
+      state |
       current_song:     song,
-      voice_channel_id: data["voice_channel_id"],
+      voice_channel_id: data["voice_channel_id"] || state.voice_channel_id,
       songs_played:     state.songs_played + 1
     }
 
@@ -225,7 +226,13 @@ defmodule ElixirService.GuildSession do
   end
 
   defp completion_ratio(_listened, 0), do: 0.0
-  defp completion_ratio(listened, total), do: Float.round(listened / total, 3)
+  defp completion_ratio(listened, total) do
+    ratio = listened / total
+
+    # yt-dlp duration might be slightly under actual playback length,
+    # so this prevents completion ratio > 1.0
+    Float.round(min(ratio, 1.0), 3)
+  end
 
   defp tl_safe([]), do: []
   defp tl_safe([_ | rest]), do: rest
