@@ -10,6 +10,19 @@ import Config
 config :elixir_service,
   generators: [timestamp_type: :utc_datetime]
 
+config :elixir_service, ElixirService.PromEx,
+  manual_metrics_start_delay: :no_delay,
+  drop_metrics_groups: [],
+  grafana: :disabled,
+  metrics_server: [
+    port: 4000,
+    path: "/metrics",
+    protocol: :http,
+    pool_size: 5,
+    cowboy_opts: [],
+    auth_strategy: :none,
+  ]
+
 # Configure the endpoint
 config :elixir_service, ElixirServiceWeb.Endpoint,
   url: [host: "localhost"],

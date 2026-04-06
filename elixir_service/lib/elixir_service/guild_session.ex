@@ -86,6 +86,12 @@ defmodule ElixirService.GuildSession do
   #
 
   defp process_event("song_started", data, state) do
+    :telemetry.execute(
+      [:elixir_service, :song, :started],
+      %{count: 1},
+      %{guild_id: state.guild_id}
+    )
+
     song = %{
       title:          data["title"],
       webpage_url:    data["webpage_url"],
@@ -124,6 +130,12 @@ defmodule ElixirService.GuildSession do
   end
 
   defp process_event("song_skipped", data, state) do
+    :telemetry.execute(
+      [:elixir_service, :song, :skipped],
+      %{count: 1},
+      %{guild_id: state.guild_id}
+    )
+
     skipped = state.current_song
 
     # emit listening event before clearing song in order to

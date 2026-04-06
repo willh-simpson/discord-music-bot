@@ -10,6 +10,7 @@ defmodule ElixirServiceWeb.Router do
 
     get "/health", HealthController, :index
     post "/events", EventController, :create
+    get "/metrics/business", MetricsController, :index
   end
 
   # Enable LiveDashboard in development

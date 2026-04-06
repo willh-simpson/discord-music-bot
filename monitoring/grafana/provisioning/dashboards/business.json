@@ -1,0 +1,85 @@
+{
+  "title": "Business Metrics",
+  "uid": "business-metrics",
+  "tags": ["discord-music-bot"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Songs played (rate per minute)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(ml_listen_events_processed_total[5m]) * 60",
+        "legendFormat": "{{reason}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Recommendations served (rate per minute)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(ml_recommendations_served_total[5m]) * 60",
+        "legendFormat": "{{phase}}"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Recommendation latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(django_recommendation_duration_seconds_bucket[5m]))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(django_recommendation_duration_seconds_bucket[5m]))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(django_recommendation_duration_seconds_bucket[5m]))",
+          "legendFormat": "p99"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Songs in database",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 8, "w": 6, "h": 8},
+      "targets": [{"expr": "ml_songs_in_database_total", "legendFormat": "Songs"}]
+    },
+    {
+      "id": 5,
+      "title": "Users in database",
+      "type": "stat",
+      "gridPos": {"x": 18, "y": 8, "w": 6, "h": 8},
+      "targets": [{"expr": "ml_users_in_database_total", "legendFormat": "Users"}]
+    },
+    {
+      "id": 6,
+      "title": "Model age (hours since last build)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "(time() - django_model_last_built_timestamp_seconds{model_type='embeddings'}) / 3600",
+        "legendFormat": "Hours since last build"
+      }]
+    },
+    {
+      "id": 7,
+      "title": "Celery task success rate",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(ml_celery_tasks_total{status='success'}[5m]) / rate(ml_celery_tasks_total[5m])",
+        "legendFormat": "{{task_name}}"
+      }]
+    }
+  ],
+  "schemaVersion": 38,
+  "version": 1
+}

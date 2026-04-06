@@ -10,3 +10,4 @@ numpy==1.26.4
 scikit-learn==1.4.1
 django-celery-beat==2.6.0
 faiss-cpu==1.8.0
+prometheus-client==0.20.0

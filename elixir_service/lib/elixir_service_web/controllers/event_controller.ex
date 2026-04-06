@@ -10,6 +10,13 @@ defmodule ElixirServiceWeb.EventController do
 
     if guild_id do
       ElixirService.GuildSession.handle_event(guild_id, event_type, data)
+
+      :telemetry.execute(
+        [:elixir_service, :event, :routed],
+        %{count: 1},
+        %{event_type: event_type, guild_id: guild_id}
+      )
+
       Logger.info("[EventController] Routed #{event_type} -> guild #{guild_id}")
     else
       Logger.warning("[EventController] Event #{event_type} has no guild_id. Ignored")

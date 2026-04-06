@@ -1,0 +1,61 @@
+{
+  "title": "Django ML Service",
+  "uid": "django-ml",
+  "tags": ["discord-music-bot", "django"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP request rate",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(django_http_requests_total[5m])",
+        "legendFormat": "{{method}} {{path}} {{status}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "HTTP error rate (5xx)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(django_http_requests_total{status=~'5..'}[5m])",
+        "legendFormat": "{{path}}"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "HTTP request duration p95 by path",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 24, "h": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(django_http_request_duration_seconds_bucket[5m]))",
+        "legendFormat": "{{path}}"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Listen events rejected",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(ml_listen_events_rejected_total[5m])",
+        "legendFormat": "Rejected events/s"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Celery task duration p95",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(ml_celery_task_duration_seconds_bucket[5m]))",
+        "legendFormat": "{{task_name}}"
+      }]
+    }
+  ],
+  "schemaVersion": 38,
+  "version": 1
+}

@@ -1,0 +1,62 @@
+{
+  "title": "Elixir Realtime Service",
+  "uid": "elixir-realtime",
+  "tags": ["discord-music-bot", "elixir"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Phoenix HTTP request rate",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "rate(phoenix_router_dispatch_stop_duration_native_count[5m])",
+        "legendFormat": "{{route}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Phoenix request duration p95 (ms)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(phoenix_router_dispatch_stop_duration_native_bucket[5m])) / 1000000",
+        "legendFormat": "{{route}} p95"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "BEAM process count",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "erlang_vm_process_count",
+        "legendFormat": "Processes"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "BEAM memory (MB)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "erlang_vm_memory_atom_bytes_total / 1048576", "legendFormat": "Atom"},
+        {"expr": "erlang_vm_memory_processes_bytes_total / 1048576", "legendFormat": "Processes"},
+        {"expr": "erlang_vm_memory_binary_bytes_total / 1048576", "legendFormat": "Binary"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Service uptime",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "targets": [{
+        "expr": "up{job='elixir'}",
+        "legendFormat": "Elixir up"
+      }]
+    }
+  ],
+  "schemaVersion": 38,
+  "version": 1
+}
