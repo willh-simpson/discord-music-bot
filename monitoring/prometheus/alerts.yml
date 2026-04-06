@@ -1,0 +1,61 @@
+groups:
+  - name: service_health
+    rules:
+      - alert: ElixirDown
+        expr: up{job="elixir"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Elixir service is down"
+          description: "Elixir has been unreachable for more than 1 minute."
+
+      - alert: DjangoDown
+        expr: up{job="django"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Django ML service is down"
+
+      - alert: HighDjangoErrorRate
+        expr: |
+          rate(django_http_requests_total{status=~"5.."}[5m])
+          / rate(django_http_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Django ML service error rate above 5%"
+          description: "{{ $value | humanizePercentage }} of requests are failing."
+
+      - alert: SlowRecommendations
+        expr: |
+          histogram.quantile(0.95,
+            rate(django_recommendation_duration_seconds_bucket[5m])
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Recommendation p95 latency above 2 seconds"
+
+      - alert: StaleModelCache
+        expr: |
+          (time() - django_model_last_built_timestamp_seconds) > 7200
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ML model cache is more than 2 hours old"
+
+  - name: business_metrics
+    rules:
+      - alert: NoSongsPlayed
+        expr: |
+          increase(elixir_songs_played_total[1h]) == 0
+        for: 7h
+        labels:
+          severity: info
+        annotations:
+          summary: "No songs played in the last 6 hours"

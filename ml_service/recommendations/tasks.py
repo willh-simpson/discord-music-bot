@@ -1,11 +1,23 @@
 import logging
 import numpy as np
+import time
 
 from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 from sklearn.metrics.pairwise import cosine_similarity
 
+from config.metrics import (
+    CELERY_TASKS_TOTAL,
+    CELERY_TASK_DURATION,
+    LISTEN_EVENTS_PROCESSED_TOTAL,
+    LISTEN_EVENTS_REJECTED_TOTAL,
+    MODEL_LAST_BUILT,
+    MODEL_BUILD_DURATION,
+    MODEL_SIZE,
+    SONGS_IN_DATABASE,
+    USERS_IN_DATABASE
+)
 from .clustering import build_user_clusters
 from .embeddings import build_song_embeddings, build_user_embeddings, build_faiss_index
 from .models import DiscordUser, Song, ListenEvent, GuildSongStats, ModelCache
@@ -27,6 +39,7 @@ def process_listening_events(self, events_data: list) -> dict:
     so one event generates N ListenEvent rows.
     """
 
+    listen_events_start = time.monotonic()
     processed = 0
     errors = []
 
@@ -36,20 +49,40 @@ def process_listening_events(self, events_data: list) -> dict:
             logger.warning(f"[tasks] Invalid event: {serializer.errors}")
             errors.append(serializer.errors)
 
+            LISTEN_EVENTS_REJECTED_TOTAL.inc()
+
             continue
-
-        event = serializer.validated_data
-
         try:
-            _persist_event(event)
+            _persist_event(serializer.validated_data)
             processed += 1
+
+            LISTEN_EVENTS_PROCESSED_TOTAL.labels(
+                reason=serializer.validated_data.get("reason", "unkown")
+            ).inc()
         except Exception as e:
             logger.error(f"[tasks] Failed to persist event: {e}")
             errors.append(str(e))
+    
+    listen_events_duration = time.monotonic() - listen_events_start
+    status = "success" if not (errors and processed == 0) else "failure"
+
+    CELERY_TASKS_TOTAL.labels(
+        task_name="process_listening_events", status=status
+    ).inc()
+    CELERY_TASK_DURATION.labels(
+        task_name="process_listening_events"
+    ).observe(listen_events_duration)
+
+    SONGS_IN_DATABASE.set(Song.objects.count())
+    USERS_IN_DATABASE.set(DiscordUser.objects.count())
 
     logger.info(f"[tasks] Processed {processed}/{len(events_data)} events")
 
     if errors and processed == 0:
+        CELERY_TASKS_TOTAL.labels(
+            task_name="process_listening_events", status="retry"
+        ).inc()
+
         # retry whole batch if all events fail
         raise self.retry(exc=Exception(f"All events failed: {errors}"))
     
@@ -250,22 +283,22 @@ def build_embeddings() -> dict:
     """
 
     logger.info("[pipeline] Starting embedding pipeline")
+    build_embeddings_start = time.monotonic()
 
     n_songs = build_song_embeddings()
-    logger.info(f"[pipeline] Song embeddings: {n_songs}")
-
     n_users = build_user_embeddings()
-    logger.info(f"[pipeline] User embeddings: {n_users}")
-
     index_stats = build_faiss_index()
-    logger.info(f"[pipeline] FAISS index: {index_stats}")
-
     cluster_stats = build_user_clusters()
-    logger.info(f"[pipeline] Clustering: {cluster_stats}")
+    matrix_stats = build_interaction_matrix() # interaction matrix needs to be rebuilt so CF is fresh
 
-    # interaction matrix needs to be rebuilt so CF is fresh
-    matrix_stats = build_interaction_matrix()
-    logger.info(f"[pipeline] Matrix rebuild: {matrix_stats}")
+    build_embeddings_duration = time.monotonic() - build_embeddings_start
+    now = time.time()
+
+    MODEL_LAST_BUILT.labels(model_type="embeddings").set(now)
+    MODEL_BUILD_DURATION.labels(model_type="embeddings").observe(build_embeddings_duration)
+    MODEL_SIZE.labels(model_type="embeddings").set(n_users)
+    CELERY_TASKS_TOTAL.labels(task_name="build_embeddings", status="success").inc()
+    CELERY_TASK_DURATION.labels(task_name="build_embeddings").observe(build_embeddings_duration)
 
     return {
         "songs_embedded": n_songs,

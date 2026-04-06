@@ -43,11 +43,35 @@ defmodule ElixirService.EventAggregator do
     events = Enum.reverse(state.buffer)
     Logger.info("[EventAggregator] Flushing #{length(events)} events to Django")
 
+    start = System.monotonic_time(:millisecond)
+
     case post_to_django(events) do
       :ok ->
+        duration_ms = System.monotonic_time(:millisecond) - start
+
+        :telemetry.execute(
+          [:elixir_service, :event_aggregator, :flushed],
+          %{count: length(events), duration_ms: duration_ms},
+          %{status: "ok"}
+        )
+
         %{state | buffer: []}
 
       {:error, reason} ->
+        duration_ms = System.monotonic_time(:millisecond) - start
+
+        :telemetry.execute(
+          [:elixir_service, :event_aggregator, :flushed],
+          %{count: 0, duration_ms: duration_ms},
+          %{status: "error"}
+        )
+
+        :telemetry.execute(
+          [:elixir_service, :event, :dropped],
+          %{count: length(events)},
+          %{reason: inspect(reason)}
+        )
+
         Logger.error("[EventAggregator] Flush failed: #{inspect(reason)}. Keeping buffer")
 
         # keep buffer and retry on next flush

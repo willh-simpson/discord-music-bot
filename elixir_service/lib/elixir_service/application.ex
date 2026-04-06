@@ -8,6 +8,9 @@ defmodule ElixirService.Application do
     children = [
       ElixirServiceWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:elixir_service, :dns_cluster_query) || :ignore},
+
+      ElixirService.PromEx,
+
       {Phoenix.PubSub, name: ElixirService.PubSub},
       {Registry, keys: :unique, name: ElixirService.Registry},
 
@@ -25,6 +28,8 @@ defmodule ElixirService.Application do
     # children are not tightly coupled, so using :one_for_one to restart just the one child if it crashes
     opts = [strategy: :one_for_one, name: ElixirService.Supervisor]
     Supervisor.start_link(children, opts)
+
+    ElixirService.TelemetryHandler.attach()
   end
 
   # Tell Phoenix to update the endpoint configuration

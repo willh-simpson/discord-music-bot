@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 import logging
+import time
 
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from config.metrics import RECOMMENDATIONS_SERVED_TOTAL, RECOMMENDATION_DURATION, RECOMMENDATION_COUNT
 from .models import RecommendationLog, UserCluster, ListenEvent
 from .serializiers import (
     ListenEventInputSerializer, 
@@ -82,12 +84,20 @@ def recommend(request):
     data = serializer.validated_data
     engine = Phase3Engine()
 
+    recommend_start = time.monotonic()
     results = engine.recommend(
         guild_id=data["guild_id"],
         user_id=data.get("user_id"),
         limit=data["limit"],
         context=data.get("context", {}),
     )
+    recommend_duration = time.monotonic() - recommend_start
+
+    phase = results[0].get("phase", "unknown") if results else "unknown"
+
+    RECOMMENDATIONS_SERVED_TOTAL.labels(phase=phase, guild_id=data["guild_id"]).inc()
+    RECOMMENDATION_DURATION.labels(phase=phase).observe(recommend_duration)
+    RECOMMENDATION_COUNT.labels(phase=phase).observe(len(results))
 
     log = None
     if data.get("user_id") and results:
