@@ -120,14 +120,14 @@ graph TD
     GuildA --> UserA1["UserSession\nGenServer — user 1 in guild A"]
     GuildA --> UserA2["UserSession\nGenServer — user 2 in guild A"]
 
-    style App fill:#e8e8e8,stroke:#999
-    style SessionSup fill:#d4edda,stroke:#28a745
-    style Aggregator fill:#d4edda,stroke:#28a745
-    style GuildA fill:#cce5ff,stroke:#004085
-    style GuildB fill:#cce5ff,stroke:#004085
-    style GuildN fill:#f8f9fa,stroke:#6c757d
-    style UserA1 fill:#fff3cd,stroke:#856404
-    style UserA2 fill:#fff3cd,stroke:#856404
+    style App fill:#4A4A4A,stroke:#999
+    style SessionSup fill:#20C743,stroke:#28a745
+    style Aggregator fill:#20C743,stroke:#28a745
+    style GuildA fill:#1A7AD6,stroke:#004085
+    style GuildB fill:#1A7AD6,stroke:#004085
+    style GuildN fill:#A8AAB3,stroke:#6c757d
+    style UserA1 fill:#E3B619,stroke:#856404
+    style UserA2 fill:#E3B619,stroke:#856404
 ```
 
 **Supervision strategies:**
@@ -186,8 +186,8 @@ graph LR
 
     Django -->|".delay(events)"| Celery["Celery Worker\nasync processing"]
 
-    style EA fill:#cce5ff,stroke:#004085
-    style Django fill:#f8d7da,stroke:#721c24
+    style EA fill:#3097FF,stroke:#004085
+    style Django fill:#FF3B4F,stroke:#721c24
 ```
 
 **Failure behavior:** If the Django POST fails then the buffer is retained and retried on the next flush cycle. Events are never lost within a session lifetime. If Elixir crashes then buffered events not yet flushed are lost. This is an acceptable tradeoff before eventually adding a persistent queue via RabbitMQ/Kafka.
@@ -301,8 +301,8 @@ graph TD
     Results --> Explainer["LangChain + Ollama\nexplain_recommendation\nStrOutputParser"]
     Explainer --> Embed["Discord embed\ntop 5 songs\n+ 1-sentence explanation"]
 
-    style Parser fill:#e8d5f5,stroke:#6f42c1
-    style Explainer fill:#e8d5f5,stroke:#6f42c1
+    style Parser fill:#B038FF,stroke:#6f42c1
+    style Explainer fill:#B038FF,stroke:#6f42c1
 ```
 
 **Failure modes:** If Ollama is unavailable or the parse fails, `extract_intent` returns `MusicIntent(is_direct_request=True, raw_query=original_query, confidence=0.0)`. The bot treats the message as a direct song search. LLM failure is never surfaced to the user.

@@ -6,6 +6,19 @@ This system builds user preference profiles based on listening behavior, improvi
 
 ---
 
+### Bot commands
+
+* `!play, !p <song>` Directly play a song (searches YouTube), or add to queue if a song is currently playing. Bot will connect to voice channel if not currently in it.
+* `!recommend, !rec <query>` Get AI-powered song recommendations from a given query specifying what kind of music the user wants to listen to, and recommends based on stored user profile. Empty query will recommend based on listening history.
+* `!skip, !s` Skip currently playing song.
+* `!queue, !q` Show current song queue.
+* `!nowplaying, !np` Show currently playing song.
+* `!stop` Stops currently playing song, clears queue, and bot leaves channel.
+* `!join` Bot joins current voice channel if the user is in one.
+* `!leave` Bot leaves current voice channel if it's in one.
+
+---
+
 ### Architecture overview
 
 ```
