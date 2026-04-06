@@ -3,8 +3,12 @@ from datetime import timedelta
 import numpy as np
 
 from django.utils import timezone
-from django.db.models import Count
-from .models import Song, ListenEvent, DiscordUser, ModelCache
+from django.db.models import Count, Avg
+
+from .clustering import get_cluster_peers
+from .context import encode_context, get_time_label
+from .embeddings import search_similar_songs
+from .models import Song, ListenEvent, DiscordUser, ModelCache, UserEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +42,9 @@ class Phase1Engine:
 
         Args:
             guild_id:  Discord guild
-            user_id:   Optional — if provided, exclude songs the user has heard recently
-            limit:     Number of results to return
-            context:   Future use (mood, game, time of day)
+            user_id:   optional — if provided, exclude songs the user has heard recently
+            limit:     number of results to return
+            context:   future use (mood, game, time of day)
 
         Returns:
             List of dicts with title, webpage_url, duration, score, reason
@@ -425,6 +429,218 @@ class Phase2Engine:
         logger.info(f"[phase2] Loaded matrices: {len(self._cache['user_ids'])} users, {len(self._cache['song_urls'])} songs")
 
         return self._cache
+
+
+class Phase3Engine:
+    """
+    Embedding-based recommendation engine.
+
+    Blends 4 signals:
+    1. Embedding similarity:    FAISS nearest-neighbor search from user profile
+    2. Cluster peers:           what users in the same taste cluster enjoy
+    3. CF signals:              Phase2 collaborative filtering
+    4. Context boost:           time-of-day and activity modifiers
+    """
+
+    WEIGHT_EMBEDDING = 0.4
+    WEIGHT_CLUSTER = 0.25
+    WEIGHT_CF = 0.25
+    WEIGHT_CONTEXT = 0.1
+
+    def __init__(self):
+        self._phase1 = Phase1Engine()
+        self._phase2 = Phase2Engine()
+
+    def recommend(
+            self,
+            guild_id: str,
+            user_id: str | None = None,
+            limit: int = 5,
+            context: dict = None,
+            log_id: int | None = None,
+    ) -> list[dict]:
+        context = context or {}
+
+        user_embedding = None
+        user_obj = None
+        if user_id:
+            try:
+                user_obj = DiscordUser.objects.get(discord_id=user_id)
+                user_embedding = user_obj.embedding.get_vector()
+            except (DiscordUser.DoesNotExist, UserEmbedding.DoesNotExist, Exception):
+                pass
+
+        if user_embedding is None:
+            logger.info(f"[phase3] No embedding for {user_id}. Falling back to Phase2")
+
+            results = self._phase2.recommend(guild_id, user_id, limit, context)
+            for r in results:
+                r.setdefault("phase", "phase2_fallback")
+
+            return results
+        
+        # recently heard songs should be excluded
+        recently_heard = self._get_recently_heard(user_obj, guild_id, days=3)
+
+        candidates = {}
+
+        similar = search_similar_songs(user_embedding, k=limit * 4, exclude_urls=recently_heard)
+        for song in similar:
+            url = song["webpage_url"]
+            candidates[url] = {
+                **song,
+                "score": song["score"] * self.WEIGHT_EMBEDDING,
+                "reason": "Matches your taste profile",
+                "_signals": {
+                    "embedding": song["score"]
+                }
+            }
+
+        if user_obj:
+            peers = get_cluster_peers(user_obj)
+            if peers:
+                peer_songs = self._peer_songs(peers, guild_id, recently_heard, limit * 3)
+                for url, data in peer_songs.items():
+                    if url not in candidates:
+                        candidates[url] = {
+                            **data,
+                            "score": 0.0,
+                            "_signals": {},
+                        }
+                    candidates[url]["score"] += data["score"] * self.WEIGHT_CLUSTER
+                    candidates[url]["_signals"]["cluster"] = data["score"]
+
+                    if len(peers) > 0:
+                        candidates[url]["reason"] = "Popular search with similar listeners"
+
+        cf_results = self._phase2.recommend(guild_id, user_id, limit=limit * 2, context=context)
+        for song in cf_results:
+            url = song["webpage_url"]
+            if url in recently_heard:
+                continue
+
+            if url not in candidates:
+                candidates[url] = {
+                    **song,
+                    "score": 0.0,
+                    "_signals": {},
+                }
+            candidates[url]["score"] += song["score"] * self.WEIGHT_CF
+            candidates[url]["_signals"]["cf"] = song["score"]
+
+        # fall back to phase 1 with insufficient data from both phase 3 and phase 2
+        if not candidates:
+            return self._phase1.recommend(guild_id, user_id, limit, context)
+        
+        # time-based popularity only contributes to a small context boost.
+        # a low weight is applied but time-based listening activity is real so it still contributes to final score.
+        context_vec = encode_context(context)
+        time_label = get_time_label(context)
+        context_boost = self._context_boost(candidates, context_vec, guild_id)
+
+        for url, boost in context_boost.items():
+            if url in candidates:
+                candidates[url]["score"] += boost * self.WEIGHT_CONTEXT
+                candidates[url]["_signals"]["context"] = boost
+
+        ranked = sorted(
+            candidates.values(),
+            key=lambda s: s["score"],
+            reverse=True
+        )[:limit]
+        for r in ranked:
+            r["phase"] = "phase3_embedding"
+
+        logger.info(
+            f"[phase3] {len(ranked)} recommendations for user {user_id} "
+            f"in guild {guild_id} (context: {time_label})"
+        )
+
+        return ranked
+    
+    def _get_recently_heard(self, user: DiscordUser, guild_id: str, days: int = 3) -> set[str]:
+        """
+        Get recently heard songs for a given user so that they can be filtered out of recommendations.
+        """
+        cutoff = timezone.now() - timedelta(days=days)
+
+        return set(
+            ListenEvent.objects
+            .filter(user=user, guild_id=guild_id, listened_at__gte=cutoff)
+            .values_list("song__webpage_url", flat=True)
+        )
+    
+    def _peer_songs(
+            self,
+            peers: list,
+            guild_id: str,
+            exclude_urls: set,
+            limit: int
+    ) -> dict:
+        """
+        Songs that users in the same cluster have been listening to.
+        """
+
+        cutoff = timezone.now() - timedelta(days=7)
+
+        rows = (
+            ListenEvent.objects
+            .filter(user__in=peers, guild_id=guild_id, listened_at__gte=cutoff)
+            .exclude(song__webpage_url__in=exclude_urls)
+            .values("song__webpage_url", "song__title", "song__duration")
+            .annotate(play_count=Count("id"), avg_completion=Avg("completion_ratio"))
+            .order_by("-play_count")[:limit]
+        )
+        if not rows:
+            return {}
+        
+        max_plays = rows[0]["play_count"]
+        result = {}
+
+        for row in rows:
+            url = row["song__webpage_url"]
+            score = (row["play_count"] / max_plays) * row["avg_completion"]
+
+            result[url] = {
+                "title": row["song__title"],
+                "webpage_url": url,
+                "duration": row["song__duration"],
+                "score": float(score),
+                "reason": "Popular with similar listeners",
+            }
+
+        return result
+    
+    def _context_boost(self, candidates: dict, context: dict, guild_id: str) -> dict[str, float]:
+        """
+        Computes a context-based boost for each candidate.
+
+        Songs played more at the same time (hour, day of week) in a guild get a small boost.
+        """
+
+        try:
+            now = timezone.now()
+            
+            rows = (
+                ListenEvent.objects
+                .filter(
+                    guild_id=guild_id, 
+                    listened_at__hour=now.hour, 
+                    song__webpage_url__in=list(candidates.keys())
+                )
+                .values("song__webpage_url")
+                .annotate(count=Count("id"))
+            )
+
+            boost = {}
+            if rows:
+                max_count = max(r["count"] for r in rows)
+                for row in rows:
+                    boost[row["song__webpage_url"]] = row["count"] / max_count
+
+            return boost
+        except Exception:
+            return {}
 
 
 def _merge(base: dict, new: dict) -> dict:

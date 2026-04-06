@@ -6,6 +6,8 @@ from django.db import transaction
 from django.utils import timezone
 from sklearn.metrics.pairwise import cosine_similarity
 
+from .clustering import build_user_clusters
+from .embeddings import build_song_embeddings, build_user_embeddings, build_faiss_index
 from .models import DiscordUser, Song, ListenEvent, GuildSongStats, ModelCache
 from .serializiers import ListenEventInputSerializer
 
@@ -233,3 +235,42 @@ def _save_cache(key: str, data, metadata: dict, n_users: int, n_songs: int):
     cache.save()
 
     logger.info(f"[matrix] Saved cache key: {key}")
+
+
+@shared_task(name="recommendations.build_embeddings")
+def build_embeddings() -> dict:
+    """
+    Full embedding pipeline:
+    1. Build song feature vectors (TF-IDF + behavioral)
+    2. Build user profile vectors as weighted average of songs
+    3. Build FAISS index over song vectors
+    4. Run K-means clustering on user vectors
+
+    Each step depends on previous step in chain.
+    """
+
+    logger.info("[pipeline] Starting embedding pipeline")
+
+    n_songs = build_song_embeddings()
+    logger.info(f"[pipeline] Song embeddings: {n_songs}")
+
+    n_users = build_user_embeddings()
+    logger.info(f"[pipeline] User embeddings: {n_users}")
+
+    index_stats = build_faiss_index()
+    logger.info(f"[pipeline] FAISS index: {index_stats}")
+
+    cluster_stats = build_user_clusters()
+    logger.info(f"[pipeline] Clustering: {cluster_stats}")
+
+    # interaction matrix needs to be rebuilt so CF is fresh
+    matrix_stats = build_interaction_matrix()
+    logger.info(f"[pipeline] Matrix rebuild: {matrix_stats}")
+
+    return {
+        "songs_embedded": n_songs,
+        "users_embedded": n_users,
+        "faiss": index_stats,
+        "clusters": cluster_stats,
+        "matrix": matrix_stats,
+    }

@@ -1,4 +1,5 @@
 import json
+import numpy as np
 
 from django.db import models
 
@@ -173,4 +174,84 @@ class RecommendationLog(models.Model):
         indexes = [
             models.Index(fields=["guild_id", "created_at"]),
             models.Index(fields=["user_id", "created_at"]),
+        ]
+
+
+class SongEmbedding(models.Model):
+    """
+    Stores dense feature vector for a song. Vector is serialized as a JSON list of floats.
+    Embeddings are stored separately from Song so they can be rebuilt
+    without touching the core song record.
+    """
+
+    song = models.OneToOneField(Song, on_delete=models.CASCADE, related_name="embedding")
+    vector = models.TextField() # JSON list of floats
+    dimensions = models.IntegerField(default=0)
+    built_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "song_embeddings"
+
+    def set_vector(self, arr):
+        """
+        Stores numpy array as JSON.
+        """
+
+        self.vector = json.dumps(arr.tolist())
+        self.dimensions = len(arr)
+
+    def get_vector(self):
+        """
+        Load as numpy array.
+        """
+
+        return np.array(json.loads(self.vector), dtype=np.float32)
+    
+
+class UserEmbedding(models.Model):
+    """
+    User's taste profile: weighted average of song embeddings they've interacted with, weighted by completion ratio.
+    Rebuilt whenever embedding pipeline runs.
+    """
+
+    user = models.OneToOneField(DiscordUser, on_delete=models.CASCADE, related_name="embedding")
+    vector = models.TextField()
+    dimensions = models.IntegerField(default=0)
+    song_count = models.IntegerField(default=0)
+    built_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_embeddings"
+
+    def set_vector(self, arr):
+        """
+        Stores numpy array as JSON.
+        """
+
+        self.vector = json.dumps(arr.tolist())
+        self.dimensions = len(arr)
+    
+    def get_vector(self):
+        """
+        Load as numpy array.
+        """
+
+        return np.array(json.loads(self.vector), dtype=np.float32)
+    
+
+class UserCluster(models.Model):
+    """
+    K-means cluster assignment for a given user. Users in the same cluster have similar taste profiles.
+    """
+
+    user = models.OneToOneField(DiscordUser, on_delete=models.CASCADE, related_name="cluster")
+    cluster_label = models.IntegerField(default=0, db_index=True)
+    cluster_name = models.CharField(max_length=128, default="") # human-readable label assigned based on most common songs in cluster
+    distance_to_centroid = models.FloatField(default=0.0)
+    built_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_clusters"
+        indexes = [
+            models.Index(fields=["cluster_label"]),
         ]
