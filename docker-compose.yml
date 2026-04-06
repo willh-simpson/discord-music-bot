@@ -105,6 +105,14 @@ services:
     depends_on:
       - prometheus
 
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
   elixir:
     build:
       context: ./elixir_service
@@ -171,3 +179,4 @@ volumes:
   elixir_build:
   prometheus_data:
   grafana_data:
+  ollama_data:

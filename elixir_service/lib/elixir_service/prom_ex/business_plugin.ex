@@ -57,6 +57,20 @@ defmodule ElixirService.PromEx.BusinessPlugin do
             buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]
           ]
         ),
+
+        counter(
+          "elixir_service.recommendations.served.total",
+          event_name: [:elixir_service, :recommendations, :served],
+          measurement: :count,
+          description: "Total recommendation sessions served via !recommend command",
+          tags: [:phase, :has_game],
+          tag_values: fn metadata ->
+            %{
+              phase:    metadata[:phase] || "unknown",
+              has_game: to_string(metadata[:has_game] || false)
+            }
+          end
+        ),
       ]
     )
   end

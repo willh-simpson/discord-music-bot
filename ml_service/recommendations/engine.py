@@ -543,6 +543,8 @@ class Phase3Engine:
                 candidates[url]["score"] += boost * self.WEIGHT_CONTEXT
                 candidates[url]["_signals"]["context"] = boost
 
+        candidates = self._apply_llm_context_boost(candidates, context)
+
         ranked = sorted(
             candidates.values(),
             key=lambda s: s["score"],
@@ -641,6 +643,43 @@ class Phase3Engine:
             return boost
         except Exception:
             return {}
+
+    def _apply_llm_context_boost(self, candidates: dict, context: dict) -> dict:
+        """
+        Apply boosts from LLM-parsed intent signals.
+
+        Examples:
+        * If LLM detects high energy, boost songs with low skip rates and high play counts.
+        * If LLM detects chill/focus, boost songs with high completion rates.
+        """
+    
+        if not context.get("llm_parsed"):
+            return candidates
+        
+        mood = context.get("mood", [])
+        energy_level = context.get("energy_level")
+
+        for url, candidate in candidates.items():
+            boost = 0.0
+
+            if "focus" in mood or context.get("context") == "focus":
+                completion = candidate.get("_signals", {}).get("completion", 0.5)
+                boost += completion * 0.1
+
+            if energy_level == "high":
+                popularity = candidate.get("_signals", {}).get("global_popularity", 0.0)
+                boost += popularity * 0.05
+
+            if energy_level == "low" or "chill" in mood:
+                completion = candidate.get("_signals", {}).get("completion", 0.5)
+                boost += completion * 0.1
+
+                popularity = candidate.get("_signals", {}).get("global_popularity", 0.0)
+                boost -= popularity * 0.02 # slightly lowering boost if a song is *too* popular. this can allow for higher quality recs
+
+            candidate["score"] += max(boost, 0.0)
+
+        return candidates
 
 
 def _merge(base: dict, new: dict) -> dict:

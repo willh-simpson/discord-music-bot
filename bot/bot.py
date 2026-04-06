@@ -76,7 +76,8 @@ async def main():
 
     async with bot:
         await bot.load_extension("cogs.music")
-        print("[bot] Loaded cog: music")
+        await bot.load_extension("cogs.presence")
+        print("[bot] Loaded cog: music, presence")
 
         try:
             await bot.start(DISCORD_TOKEN)
