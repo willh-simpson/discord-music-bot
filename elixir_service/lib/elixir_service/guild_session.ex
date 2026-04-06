@@ -178,6 +178,20 @@ defmodule ElixirService.GuildSession do
     }
   end
 
+  defp process_event("recommendations_served", data, state) do
+  :telemetry.execute(
+    [:elixir_service, :recommendations, :served],
+    %{count: data["count"] || 0},
+    %{
+      guild_id: state.guild_id,
+      phase: data["phase"] || "unknown",
+      has_game: data["game_context"] != nil
+    }
+  )
+
+  state
+end
+
   defp process_event(unknown, _data, state) do
     Logger.warning("[GuildSession: #{state.guild_id}] Unknown event")
 
