@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import RecommendationLog
+from .models import RecommendationLog, UserCluster, ListenEvent
 from .serializiers import (
     ListenEventInputSerializer, 
     RecommendationRequestSerializer, 
@@ -13,7 +13,7 @@ from .serializiers import (
     AcceptanceSerializer
 )
 from .tasks import process_listening_events
-from .engine import Phase2Engine
+from .engine import Phase3Engine
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def recommend(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     data = serializer.validated_data
-    engine = Phase2Engine()
+    engine = Phase3Engine()
 
     results = engine.recommend(
         guild_id=data["guild_id"],
@@ -146,4 +146,46 @@ def accept_recommendation(request):
         "accepted": accepted,
         "total": total,
         "acceptance_rate": log.acceptance_rate,
+    })
+
+
+@api_view(["GET"])
+def cluster_info(request, guild_id):
+    """
+    Returns cluster membership for all users active in a guild.
+    """
+
+    active_user_ids = (
+        ListenEvent.objects
+        .filter(guild_id=guild_id)
+        .values_list("user__discord_id", flat=True)
+        .distinct()
+    )
+
+    clusters = (
+        UserCluster.objects
+        .filter(user__discord_id__in=active_user_ids)
+        .select_related("user")
+        .order_by("cluster_label")
+    )
+
+    result = {}
+    for uc in clusters:
+        label = str(uc.cluster_label)
+        if label not in result:
+            result[label] = {
+                "cluster_name": uc.cluster_name,
+                "members": []
+            }
+
+        result[label]["members"].append({
+            "discord_id": uc.user.discord_id,
+            "username": uc.user.username,
+            "distance": round(uc.distance_to_centroid, 4),
+        })
+
+    return Response({
+        "guild_id": guild_id,
+        "clusters": result,
+        "total_users": len(active_user_ids),
     })
